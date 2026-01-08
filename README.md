@@ -25,11 +25,12 @@ A comprehensive IoT-based accident detection and monitoring system for smart hel
 
 ## 🌟 Overview
 
-The Smart Helmet IoT System is a prototype accident detection and monitoring solution that leverages mobile phone sensors (accelerometer, gyroscope, GPS) to simulate a smart helmet. The system consists of three main components:
+The Smart Helmet IoT System is a comprehensive accident detection and monitoring solution that can work with both real hardware and mobile phone sensors. The system consists of four main components:
 
-1. **Mobile App** (Expo/React Native) - Acts as the helmet sensor
-2. **Server** (Node.js/Express) - Processes sensor data and manages alerts
-3. **Dashboard** (Next.js) - Monitors helmet status and displays analytics
+1. **ESP32 Hardware** (Arduino/C++) - Physical smart helmet with MPU6050 sensor
+2. **Mobile App** (Expo/React Native) - Sensor simulation and monitoring
+3. **Server** (Node.js/Express) - Processes sensor data, manages alerts, and MQTT broker
+4. **Dashboard** (Next.js) - Real-time monitoring and analytics with MongoDB support
 
 ### Use Case
 
@@ -41,22 +42,37 @@ When a rider wearing the smart helmet experiences an accident (detected via g-fo
 ## 🏗️ System Architecture
 
 ```
-┌─────────────────┐         WebSocket          ┌─────────────────┐
-│                 │◄──────────────────────────►│                 │
-│  Mobile App     │    Real-time Sensor Data   │  Helmet Server  │
-│  (Expo Go)      │    Accident Detection      │  (Node.js)      │
+┌─────────────────┐                             ┌─────────────────┐
+│  ESP32 Helmet   │         MQTT Broker         │  Mobile App     │
+│  (Hardware)     │◄───────(HiveMQ)────────────►│  (Expo Go)      │
 │                 │                             │                 │
-└─────────────────┘                             └────────┬────────┘
-        │                                                │
-        │ Sensors:                                       │ WebSocket
-        │ • Accelerometer                                │
-        │ • Gyroscope                                    │
-        │ • GPS Location                                 ▼
-        │                                       ┌─────────────────┐
-        │                                       │   Dashboard     │
-        └──────────────────────────────────────►│   (Next.js)     │
-                  QR Code Scan                  │                 │
-                                                └─────────────────┘
+│  • MPU6050      │    helmet/H001/event        │  • Accelerometer│
+│  • LED/Button   │                             │  • Gyroscope    │
+│  • WiFi         │                             │  • GPS Location │
+└────────┬────────┘                             └────────┬────────┘
+         │                                               │
+         │ MQTT Pub/Sub                                  │ WebSocket
+         │                                               │
+         └─────────────────►┌────────────────┐◄──────────┘
+                            │ Helmet Server  │
+                            │  (Node.js)     │
+                            │                │
+                            │ • MQTT Service │
+                            │ • WebSocket    │
+                            │ • MongoDB      │
+                            │ • Email        │
+                            └───────┬────────┘
+                                    │ WebSocket
+                                    ▼
+                           ┌─────────────────┐
+                           │   Dashboard     │
+                           │   (Next.js)     │
+                           │                 │
+                           │ • Live Map      │
+                           │ • Alerts        │
+                           │ • Analytics     │
+                           │ • CSV Export    │
+                           └─────────────────┘
 ```
 
 ## ✨ Features
@@ -89,22 +105,36 @@ When a rider wearing the smart helmet experiences an accident (detected via g-fo
 - **Interactive map**: Live GPS tracking with Leaflet
 - **Safety score**: Dynamic calculation based on accident history
 - **Alert management**: Filter by severity, status, and time
+- **CSV Export**: Export alerts to CSV file for analysis
 - **24-hour auto-deactivation**: Alerts automatically deactivate after 24 hours
 - **Event history**: Complete accident log with detailed telemetry
 - **Dark/Light theme**: Customizable UI theme
 
 ### 🔧 Server Features
 - **WebSocket server**: Real-time bidirectional communication
+- **MQTT broker integration**: Communication with ESP32 hardware via HiveMQ
+- **MongoDB support**: Optional database integration for persistent storage
+- **File-based logging**: JSON backup with automatic fallback
 - **REST API**: Access accident logs and sensor data
 - **QR code generation**: Easy mobile app pairing
 - **Auto-discovery**: UDP broadcasting for automatic server detection
-- **Accident logging**: JSON-based persistent storage
-- **Email service**: Nodemailer integration for notifications
+- **Email service**: Nodemailer integration for emergency notifications
 
 ## 📁 Project Structure
 
 ```
-course-project/
+smart-helmet-system/
+├── SmartHelmet/                # 🔩 ESP32 Hardware (Arduino/C++)
+│   ├── SmartHelmet.ino         # Main Arduino sketch
+│   ├── config.h                # Configuration & thresholds
+│   ├── mpu6050.cpp/.h          # MPU6050 sensor driver
+│   ├── crash_detector.cpp/.h   # Crash detection algorithm
+│   ├── state_machine.cpp/.h    # State management (Monitor/Pending/Cancelled)
+│   ├── mqtt_manager.cpp/.h     # MQTT client (HiveMQ)
+│   ├── led.cpp/.h              # LED indicator control
+│   ├── button.cpp/.h           # Physical cancel button
+│   └── imu_filters.cpp/.h      # Sensor data filtering
+│
 ├── helmet-sensor-app/          # 📱 Mobile Application (Expo/React Native)
 │   ├── screens/                # UI screens (Home, Map, Settings)
 │   ├── services/               # Sensor management & WebSocket client
@@ -114,12 +144,15 @@ course-project/
 │
 ├── helmet-server/              # 💻 Backend Server (Node.js/Express)
 │   ├── services/               # Business logic modules
+│   │   ├── mqttService.js          # MQTT broker integration (NEW)
+│   │   ├── dbService.js            # MongoDB service (NEW)
 │   │   ├── detectionService.js     # Accident detection algorithm
 │   │   ├── alertService.js         # Alert classification & logging
 │   │   ├── emailService.js         # Email notification service
 │   │   ├── qrService.js            # QR code generation
 │   │   └── discoveryService.js     # UDP auto-discovery
 │   ├── logs/                   # Accident logs (JSON)
+│   │   └── accidents.json      # Persistent file-based logging
 │   ├── server.js               # Main server entry point
 │   ├── .env                    # Environment variables
 │   └── package.json
@@ -128,12 +161,16 @@ course-project/
 │   ├── app/                    # Next.js app router pages
 │   │   ├── (dashboard)/        # Dashboard pages
 │   │   │   ├── page.tsx            # Main dashboard
-│   │   │   ├── alerts/             # Alerts page
+│   │   │   ├── alerts/             # Alerts page (with CSV export)
 │   │   │   ├── history/            # Event history
 │   │   │   ├── notifications/      # Notifications
 │   │   │   ├── map/                # Live map
 │   │   │   └── settings/           # Settings
 │   │   └── api/                # API routes
+│   │       ├── alerts/             # Alert data endpoints
+│   │       ├── accidents/          # Accident log endpoints
+│   │       ├── history/            # History data
+│   │       └── notifications/      # Notification service
 │   ├── components/             # React components
 │   ├── context/                # State management (Context API)
 │   ├── lib/                    # Utilities & data stores
@@ -183,6 +220,11 @@ course-project/
    EMAIL_USER=your-gmail@gmail.com
    EMAIL_PASS=your-app-password
    PORT=3001
+   
+   # Optional: MongoDB Configuration
+   USE_MONGODB=false
+   # MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/
+   # MONGODB_DATABASE=smart_helmet_db
    ```
 
    **Dashboard** (`smart-helmet-dashboard/.env.local`):
@@ -190,6 +232,11 @@ course-project/
    EMAIL_USER=your-gmail@gmail.com
    EMAIL_PASS=your-app-password
    ```
+
+   **ESP32 Hardware** (optional - if using physical helmet):
+   - Edit `SmartHelmet/mqtt_manager.cpp` (lines 9-11):
+     - Update WiFi SSID and password
+     - MQTT broker is pre-configured (broker.hivemq.com)
 
    > **How to get Gmail App Password:**
    > 1. Go to [Google Account Settings](https://myaccount.google.com/) → Security
@@ -252,6 +299,32 @@ npm start
 
 ## 🔧 Components
 
+### 0. ESP32 Hardware (`SmartHelmet`)
+
+**Technology**: ESP32, Arduino IDE, C++
+
+**Key Features**:
+- MPU6050 (accelerometer & gyroscope) data acquisition
+- Crash detection algorithm on-device
+- State management (Monitor, Pending, Cancelled)
+- MQTT client for communication with server (HiveMQ)
+- LED indicators for status
+- Physical button for emergency cancellation
+- Sensor data filtering
+
+**Main Files**:
+- `SmartHelmet.ino` - Main Arduino sketch
+- `mpu6050.cpp/.h` - MPU6050 sensor driver
+- `crash_detector.cpp/.h` - Crash detection logic
+- `mqtt_manager.cpp/.h` - MQTT communication
+- `state_machine.cpp/.h` - Device state management
+
+**Run Commands**:
+```bash
+# Upload code to ESP32 using Arduino IDE
+# (Requires ESP32 board definitions and libraries installed)
+```
+
 ### 1. Mobile App (`helmet-sensor-app`)
 
 **Technology**: Expo SDK 54, React Native 0.81, TypeScript
@@ -279,10 +352,13 @@ npm run ios        # Run on iOS device/simulator
 
 ### 2. Server (`helmet-server`)
 
-**Technology**: Node.js, Express, Socket.io, Nodemailer
+**Technology**: Node.js, Express, Socket.io, MQTT, Mongoose, Nodemailer
 
 **Key Features**:
 - WebSocket server for real-time communication
+- MQTT broker integration (HiveMQ) for ESP32 communication
+- MongoDB integration for persistent storage (optional)
+- File-based JSON logging with automatic fallback
 - Accident detection algorithm
 - Alert classification and logging
 - Email notification service
@@ -292,10 +368,12 @@ npm run ios        # Run on iOS device/simulator
 
 **Main Files**:
 - `server.js` - Main server entry point
+- `services/mqttService.js` - MQTT broker integration
+- `services/dbService.js` - MongoDB operations
 - `services/detectionService.js` - Accident detection logic
 - `services/alertService.js` - Alert classification
 - `services/emailService.js` - Email notifications
-- `logs/accidents.json` - Accident history
+- `logs/accidents.json` - Accident history (file backup)
 
 **API Endpoints**:
 - `GET /` - Server status
@@ -371,6 +449,47 @@ npm start          # Start production server
    - Live map
 ```
 
+### MQTT Communication Flow (ESP32 Hardware)
+
+```
+1. ESP32 connects to WiFi and HiveMQ MQTT broker
+   ↓
+2. ESP32 subscribes to: helmet/H001/event
+   ↓
+3. Server subscribes to: helmet/+/event (wildcard for all helmets)
+   ↓
+4. MPU6050 continuously reads accelerometer & gyroscope data
+   ↓
+5. Crash Detection Algorithm:
+   - G-Force > 4.5g OR
+   - Tilt > 60° for 2 seconds
+   ↓
+6. If crash detected → Publish ACCIDENT_PENDING to MQTT
+   ↓
+7. Server receives MQTT message → Broadcasts to Dashboard via WebSocket
+   ↓
+8. ESP32 LED turns ON (10-second cancel window)
+   ↓
+9. User Response:
+   ├─ Press Button → Publish CRASH_CANCELLED to MQTT
+   │                → Server logs as low severity
+   │                → LED turns OFF
+   │
+   └─ Timeout (no button press) → Publish CRASH_CONFIRMED to MQTT
+                                 → Server logs as high severity
+                                 → Server sends emergency email
+                                 → LED turns OFF
+```
+
+**MQTT Topics**:
+- `helmet/H001/event` - All events from helmet H001
+- `helmet/+/event` - Server wildcard subscription for all helmets
+
+**Message Types**:
+- `ACCIDENT_PENDING` - Crash detected, awaiting user response
+- `CRASH_CANCELLED` - User pressed cancel button (false alarm)
+- `CRASH_CONFIRMED` - No response from user (emergency)
+
 ### Detection Thresholds
 
 | Parameter | Threshold | Description |
@@ -389,6 +508,14 @@ npm start          # Start production server
 
 ## 🛠️ Technologies Used
 
+### ESP32 Hardware
+- **ESP32** - WiFi-enabled microcontroller
+- **Arduino IDE** - Development environment
+- **MPU6050** - 6-axis IMU (accelerometer + gyroscope)
+- **Wire.h** - I2C communication library
+- **WiFi.h** - ESP32 WiFi management
+- **PubSubClient** - MQTT client library
+
 ### Mobile App
 - **Expo SDK** 54 - React Native framework
 - **React Native** 0.81 - Mobile UI framework
@@ -403,6 +530,8 @@ npm start          # Start production server
 - **Node.js** 18+ - JavaScript runtime
 - **Express** 5 - Web framework
 - **Socket.io** 4 - WebSocket server
+- **MQTT.js** - MQTT client for broker communication
+- **Mongoose** 8 - MongoDB ODM (optional)
 - **Nodemailer** 7 - Email service
 - **QRCode** - QR code generation
 - **CORS** - Cross-origin resource sharing
@@ -467,9 +596,67 @@ Edit `smart-helmet-dashboard/lib/accidents-store.ts`:
 const isActive = hoursSinceAccident < 24;  // Change 24 to desired hours
 ```
 
+### MongoDB Database (Optional)
+
+The server supports MongoDB for persistent storage. To enable:
+
+**Setup Steps**:
+1. Create a MongoDB database (MongoDB Atlas or local)
+2. Get your connection string
+3. Add to `helmet-server/.env`:
+   ```env
+   USE_MONGODB=true
+   MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/
+   MONGODB_DATABASE=smart_helmet_db
+   ```
+
+**To disable MongoDB** (use file-only logging):
+```env
+USE_MONGODB=false
+```
+
+The system automatically falls back to file-based logging if MongoDB fails.
+
+### ESP32 Hardware Setup
+
+**Requirements**:
+- ESP32 development board
+- MPU6050 sensor module
+- LED (built-in or external)
+- Push button for emergency cancel
+- Jumper wires
+
+**Wiring**:
+```
+MPU6050 → ESP32
+  VCC   → 3.3V
+  GND   → GND
+  SCL   → GPIO 22 (I2C Clock)
+  SDA   → GPIO 21 (I2C Data)
+
+Button  → GPIO 26 (with pull-up)
+LED     → GPIO 2 (built-in LED)
+```
+
+**Configuration** (`SmartHelmet/mqtt_manager.cpp`):
+```cpp
+const char* ssid = "Your_WiFi_SSID";        // Line 9
+const char* password = "Your_WiFi_Password"; // Line 10
+const char* mqtt_server = "broker.hivemq.com"; // Line 11
+```
+
+**Thresholds** (`SmartHelmet/config.h`):
+```cpp
+#define ACCEL_CRASH_G    4.5   // Crash g-force threshold
+#define TILT_THRESHOLD_DEG 60  // Tilt angle in degrees
+#define CANCEL_WINDOW_MS 10000 // 10-second cancel window
+```
+
 ## 🧪 Testing
 
 ### Test Scenarios
+
+#### Mobile App Testing
 
 | Test | Action | Expected Result |
 |------|--------|-----------------|
@@ -479,6 +666,17 @@ const isActive = hoursSinceAccident < 24;  // Change 24 to desired hours
 | **Timeout Test** | Don't press button (10s) | Logged as HIGH severity + email sent |
 | **Dashboard Test** | Check dashboard after accident | Alert count updates, event in history |
 | **Map Test** | View map page | Location marker appears |
+
+#### ESP32 Hardware Testing
+
+| Test | Action | Expected Result |
+|------|--------|-----------------|
+| **MQTT Connection** | Power on ESP32 | Serial monitor shows "WiFi connected", "MQTT connected" |
+| **Sensor Test** | View Serial Monitor | Real-time accelerometer and gyroscope readings displayed |
+| **Crash Simulation** | Shake/drop the helmet | LED turns ON, MQTT message published to broker |
+| **Button Cancel** | Press button during LED ON | LED turns OFF, "CRASH_CANCELLED" published |
+| **Timeout Test** | Don't press button (10s) | "CRASH_CONFIRMED" published, email sent |
+| **Dashboard Integration** | Trigger ESP32 accident | Dashboard shows alert in real-time |
 
 ### Viewing Logs
 

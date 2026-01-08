@@ -6,8 +6,8 @@ import { User, Phone, Save, Mail, Shield, Plus, Trash2 } from "lucide-react";
 export default function ProfilePage() {
     const [isEditing, setIsEditing] = useState(false);
     const [profile, setProfile] = useState({
-        name: "Rahul Kumar",
-        email: "rahul.k@example.com",
+        name: "Simran Kalkeri",
+        email: "simran.k@example.com",
         phone: "+91 98765 43210",
         helmetId: "SH-2024-001",
         photo: null

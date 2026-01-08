@@ -4,13 +4,20 @@ import { addAccident } from '@/lib/accidents-store';
 
 export async function POST(request: Request) {
   try {
-    // Get location and severity from request body if provided
+    // Get data from request body
     let latitude = 15.3647; // Default: Hubballi
     let longitude = 75.1240;
     let severity: "high" | "low" = "high"; // Default to high
+    let gForce = null;
+    let tilt = null;
+    let acceleration = null;
+    let timestamp_ms = null;
+    let source = null;
 
     try {
       const body = await request.json();
+      console.log('Email API received body:', body);
+
       if (body.latitude && body.longitude) {
         latitude = body.latitude;
         longitude = body.longitude;
@@ -18,17 +25,24 @@ export async function POST(request: Request) {
       if (body.severity) {
         severity = body.severity;
       }
+      // Extract real helmet telemetry
+      if (body.gForce !== undefined) gForce = body.gForce;
+      if (body.tilt !== undefined) tilt = body.tilt;
+      if (body.acceleration) acceleration = body.acceleration;
+      if (body.timestamp) timestamp_ms = body.timestamp;
+      if (body.source) source = body.source;
     } catch (e) {
+      console.error('Error parsing request body:', e);
       // No body or invalid JSON, use defaults
     }
 
-    // Generate realistic sensor telemetry (Gyroscope + Accelerometer)
-    const timestamp = new Date();
+    // Generate realistic sensor telemetry
+    const timestamp = timestamp_ms ? new Date(timestamp_ms) : new Date();
 
-    // Realistic sensor values based on gyroscope and accelerometer
+    // Use REAL values if available, otherwise fall back to simulated values
     const telemetry = {
       id: `EVT-${Date.now().toString().slice(-4)}`,
-      riderName: "Rahul Kumar",
+      riderName: "Simran Kalkeri",
       helmetId: "SH-2024-001",
       timestamp: timestamp.toLocaleString('en-IN', {
         timeZone: 'Asia/Kolkata',
@@ -39,23 +53,28 @@ export async function POST(request: Request) {
       longitude: longitude.toFixed(6),
       location: `${latitude.toFixed(6)}° N, ${longitude.toFixed(6)}° E`,
       severity: severity,
+      source: source || 'UNKNOWN',
 
-      // Gyroscope data (angular velocity in degrees/second)
-      gyroX: severity === "high" ? "245.3" : "45.2",  // Pitch rotation
-      gyroY: severity === "high" ? "189.7" : "32.1",  // Roll rotation
-      gyroZ: severity === "high" ? "156.4" : "28.5",  // Yaw rotation
+      // Use REAL accelerometer data if available
+      accelX: acceleration?.x?.toFixed(2) || (severity === "high" ? "8.5" : "2.1"),
+      accelY: acceleration?.y?.toFixed(2) || (severity === "high" ? "6.2" : "1.8"),
+      accelZ: acceleration?.z?.toFixed(2) || (severity === "high" ? "12.3" : "3.2"),
 
-      // Accelerometer data (G-force)
-      accelX: severity === "high" ? "8.5" : "2.1",   // Forward/backward
-      accelY: severity === "high" ? "6.2" : "1.8",   // Left/right
-      accelZ: severity === "high" ? "12.3" : "3.2",  // Up/down
+      // Use REAL tilt angle if available
+      tiltAngle: tilt !== null ? `${Math.abs(tilt).toFixed(1)}°` : (severity === "high" ? "78°" : "35°"),
 
-      // Calculated values
-      tiltAngle: severity === "high" ? "78°" : "35°",  // Helmet tilt from gyroscope
-      impactForce: severity === "high" ? "15.8 G" : "4.2 G",  // Total acceleration magnitude
+      // Use REAL g-force if available
+      impactForce: gForce !== null ? `${gForce.toFixed(2)} G` : (severity === "high" ? "15.8 G" : "4.2 G"),
+
+      // Gyroscope data (not available from helmet, use simulated)
+      gyroX: severity === "high" ? "245.3" : "45.2",
+      gyroY: severity === "high" ? "189.7" : "32.1",
+      gyroZ: severity === "high" ? "156.4" : "28.5",
 
       isCancelled: severity === "low",
     };
+
+    console.log('Email telemetry:', telemetry);
 
     // Setup Email Transporter
     const emailUser = process.env.EMAIL_USER;
@@ -206,40 +225,49 @@ export async function POST(request: Request) {
       `
     };
 
-    // Send Email
-    let emailStatus = "pending";
-    try {
-      if (emailUser && emailPass) {
-        await transporter.sendMail(mailOptions);
-        emailStatus = "sent";
-        console.log("✅ Email sent successfully to:", mailOptions.to);
-        console.log("📍 Location:", telemetry.location);
-        console.log("⏰ Time:", telemetry.timestamp);
-        console.log("⚠️ Severity:", severity.toUpperCase());
-      } else {
-        console.log("---------------------------------------------------");
-        console.log("SIMULATION MODE: No SMTP credentials found in .env");
-        console.log(`To: ${mailOptions.to}`);
-        console.log(`Subject: ${mailOptions.subject}`);
-        console.log(`Location: ${telemetry.location}`);
-        console.log(`Time: ${telemetry.timestamp}`);
-        console.log(`Severity: ${severity.toUpperCase()}`);
-        console.log("---------------------------------------------------");
-        emailStatus = "simulated_sent";
-      }
-    } catch (emailError: any) {
-      console.error("❌ Email send failed:", emailError);
-      emailStatus = "failed";
+    // Send Email ONLY for HIGH severity accidents
+    let emailStatus = "not_sent"; // Default: no email for low severity
 
-      // Return specific auth error for frontend handling
-      if (emailError.code === 'EAUTH') {
-        return NextResponse.json({
-          success: false,
-          error: "SMTP Auth Failed. Check .env.local credentials.",
-          details: "Gmail requires an App Password if 2FA is on.",
-          emailStatus
-        }, { status: 401 });
+    if (severity === "high") {
+      try {
+        if (emailUser && emailPass) {
+          await transporter.sendMail(mailOptions);
+          emailStatus = "sent";
+          console.log("✅ Email sent successfully to:", mailOptions.to);
+          console.log("📍 Location:", telemetry.location);
+          console.log("⏰ Time:", telemetry.timestamp);
+          console.log("⚠️ Severity:", severity.toUpperCase());
+        } else {
+          console.log("---------------------------------------------------");
+          console.log("SIMULATION MODE: No SMTP credentials found in .env");
+          console.log(`To: ${mailOptions.to}`);
+          console.log(`Subject: ${mailOptions.subject}`);
+          console.log(`Location: ${telemetry.location}`);
+          console.log(`Time: ${telemetry.timestamp}`);
+          console.log(`Severity: ${severity.toUpperCase()}`);
+          console.log("---------------------------------------------------");
+          emailStatus = "simulated_sent";
+        }
+      } catch (emailError: any) {
+        console.error("❌ Email send failed:", emailError);
+        emailStatus = "failed";
+
+        // Return specific auth error for frontend handling
+        if (emailError.code === 'EAUTH') {
+          return NextResponse.json({
+            success: false,
+            error: "SMTP Auth Failed. Check .env.local credentials.",
+            details: "Gmail requires an App Password if 2FA is on.",
+            emailStatus
+          }, { status: 401 });
+        }
       }
+    } else {
+      // Low severity - just log, no email
+      console.log("📝 Low severity accident logged (no email sent)");
+      console.log("   Location:", telemetry.location);
+      console.log("   Time:", telemetry.timestamp);
+      console.log("   Reason: User cancelled SOS");
     }
 
     // Save accident to store

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
     View,
     Text,
@@ -10,6 +10,7 @@ import {
     StatusBar,
     Alert,
 } from 'react-native';
+import * as Location from "expo-location";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import sensorService, { SensorData } from '../services/sensorService';
 import socketService from '../services/socketService';
@@ -17,6 +18,7 @@ import LiveMapWebView from '../components/LiveMapWebView';
 import CancelButton from '../components/CancelButton';
 import QRScanner from '../components/QRScanner';
 import discoveryService from '../services/discoveryService';
+import { connectMQTT, onEvent, publishAccidentPending } from '../services/mqttService';
 
 const SensorScreen: React.FC = () => {
     const [serverUrl, setServerUrl] = useState('http://192.168.1.x:3001');
@@ -24,15 +26,135 @@ const SensorScreen: React.FC = () => {
     const [isMonitoring, setIsMonitoring] = useState(false);
     const [sensorData, setSensorData] = useState<SensorData | null>(null);
     const [showAlert, setShowAlert] = useState(false);
-    const [lastAnomalyTime, setLastAnomalyTime] = useState(0);
     const [showQRScanner, setShowQRScanner] = useState(false);
-    const [alertSent, setAlertSent] = useState(false); // Track if alert was sent for current incident
+    const [locationSubscription, setLocationSubscription] = useState<any>(null);
+
+    // EVENT-DRIVEN STATE (from MQTT events only)
+    const [accidentState, setAccidentState] = useState<'IDLE' | 'PENDING' | 'CANCELLED' | 'CONFIRMED'>('IDLE');
+    const [eventTimestamp, setEventTimestamp] = useState<number>(0);
+
+    // Use ref to store current location
+    const currentLocationRef = useRef<{ latitude: number; longitude: number } | null>(null);
 
     const STORAGE_KEY = '@helmet_server_url';
 
     useEffect(() => {
-        // Load saved server URL from AsyncStorage
-        const loadSavedServer = async () => {
+        // Initialize location permissions and MQTT connection
+        (async () => {
+            // Request location permissions
+            const { status } = await Location.requestForegroundPermissionsAsync();
+
+            if (status === 'granted') {
+                // Start location tracking immediately on app start
+                console.log('📍 Starting location tracking...');
+                const subscription = await Location.watchPositionAsync(
+                    {
+                        accuracy: Location.Accuracy.High,
+                        timeInterval: 2000, // Update every 2 seconds
+                        distanceInterval: 5, // Or when moved 5 meters
+                    },
+                    (location) => {
+                        const newLocation = {
+                            latitude: location.coords.latitude,
+                            longitude: location.coords.longitude,
+                        };
+
+                        // Store in ref for MQTT callback
+                        currentLocationRef.current = newLocation;
+
+                        // Update sensor data with current location
+                        setSensorData(prev => ({
+                            ...prev,
+                            gForce: prev?.gForce || 0,
+                            tilt: prev?.tilt || 0,
+                            acceleration: prev?.acceleration || { x: 0, y: 0, z: 0 },
+                            rotation: prev?.rotation || { x: 0, y: 0, z: 0 },
+                            location: newLocation,
+                        }));
+                    }
+                );
+                setLocationSubscription(subscription);
+            } else {
+                console.error('❌ Location permission denied');
+            }
+
+            // Connect to MQTT and listen for events
+            connectMQTT();
+
+            // Register MQTT event handler
+            onEvent(async (event: any) => {
+                console.log('📨 MQTT Event received in UI:', event.type);
+
+                switch (event.type) {
+                    case 'ACCIDENT_PENDING':
+                        console.log('⏳ Show pending UI - ESP32 timer started');
+
+                        // If this came from ESP32, send our location back
+                        if (event.source === 'ESP32') {
+                            console.log('📍 ESP32 needs location - sending current location...');
+
+                            // Get current location (from ref or fetch fresh)
+                            let location = currentLocationRef.current;
+
+                            if (!location) {
+                                console.log('⚠️ No cached location, fetching...');
+                                try {
+                                    const currentPos = await Location.getCurrentPositionAsync({
+                                        accuracy: Location.Accuracy.Balanced,
+                                    });
+                                    location = {
+                                        latitude: currentPos.coords.latitude,
+                                        longitude: currentPos.coords.longitude
+                                    };
+                                } catch (err) {
+                                    console.error('❌ Failed to get location:', err);
+                                }
+                            }
+
+                            // Publish location back to MQTT for ESP32
+                            if (location) {
+                                console.log('📤 Publishing location for ESP32:', location);
+                                publishAccidentPending({
+                                    gForce: event.telemetry?.gForce || 0,
+                                    acceleration: event.telemetry?.acceleration || { x: 0, y: 0, z: 0 }
+                                }, location);
+                            }
+                        }
+
+                        setAccidentState('PENDING');
+                        setEventTimestamp(event.timestamp);
+                        setShowAlert(true); // Show the cancel button UI
+                        break;
+
+
+                    case 'CRASH_CANCELLED':
+                        console.log('✅ Accident cancelled by ESP32 button');
+                        setAccidentState('CANCELLED');
+                        setShowAlert(false);
+                        sensorService.resetAlertState(); // ✅ Reset to allow next detection
+                        // Show cancelled message
+                        setTimeout(() => {
+                            Alert.alert('✓ False Alarm', 'Accident cancelled by helmet button');
+                            setAccidentState('IDLE');
+                        }, 100);
+                        break;
+
+
+                    case 'CRASH_CONFIRMED':
+                        console.log('🚨 Accident CONFIRMED - no response');
+                        setAccidentState('CONFIRMED');
+                        setShowAlert(false);
+                        sensorService.resetAlertState(); // ✅ Reset to allow next detection
+                        // Show confirmed message
+                        setTimeout(() => {
+                            Alert.alert('🚨 Emergency Alert', 'Accident confirmed - Emergency services notified');
+                            setAccidentState('IDLE');
+                        }, 100);
+                        break;
+                }
+            });
+
+            // Load saved server URL from AsyncStorage
             try {
                 const savedUrl = await AsyncStorage.getItem(STORAGE_KEY);
                 if (savedUrl) {
@@ -52,14 +174,16 @@ const SensorScreen: React.FC = () => {
             } catch (error) {
                 console.error('Error loading saved server:', error);
             }
-        };
-
-        loadSavedServer();
+        })();
 
         return () => {
             sensorService.stopMonitoring();
             socketService.disconnect();
             discoveryService.stopDiscovery();
+            // Clean up location subscription
+            if (locationSubscription) {
+                locationSubscription.remove();
+            }
         };
     }, []);
 
@@ -106,24 +230,37 @@ const SensorScreen: React.FC = () => {
             (data) => {
                 setSensorData(data);
             },
-            // On anomaly detected
-            (data) => {
-                // Only send alert if we haven't already sent one for this incident
-                if (!alertSent) {
-                    const now = Date.now();
-                    console.log('🚨 First anomaly detected - sending alert');
-                    setAlertSent(true); // Mark that we've sent the alert
+            // On anomaly detected - ONLY publish MQTT event
+            async (data) => {
+                console.log('🚨 Anomaly detected - publishing ACCIDENT_PENDING to MQTT');
 
-                    // Send accident alert to server (ONLY ONCE)
-                    socketService.sendAccidentAlert({
-                        gForce: data.gForce,
-                        tilt: data.tilt,
-                        timestamp: now,
-                        location: data.location,
-                    });
-                } else {
-                    console.log('⏭️ Anomaly detected but alert already sent - skipping');
+                // Use location from sensor data, or fallback to current ref, or fetch immediately
+                let location = data.location || currentLocationRef.current;
+
+                console.log('📍 Location from data:', data.location);
+                console.log('📍 Location from ref:', currentLocationRef.current);
+
+                // If still no location, try to get it immediately
+                if (!location) {
+                    console.log('⚠️ No cached location, fetching current location...');
+                    try {
+                        const currentPos = await Location.getCurrentPositionAsync({
+                            accuracy: Location.Accuracy.Balanced,
+                        });
+                        location = {
+                            latitude: currentPos.coords.latitude,
+                            longitude: currentPos.coords.longitude
+                        };
+                        console.log('✅ Got current location:', location);
+                    } catch (err) {
+                        console.error('❌ Failed to get current location:', err);
+                    }
                 }
+
+                // Publish to MQTT for ESP32 to handle
+                publishAccidentPending(data, location);
+
+                // Don't show alert locally - wait for MQTT event from ESP32
             },
             // On continuous data (stream to server)
             (data) => {
@@ -148,46 +285,8 @@ const SensorScreen: React.FC = () => {
         sensorService.stopMonitoring();
     };
 
-    const handleCancelAlert = () => {
-        console.log('✅ User cancelled alert');
-        socketService.sendCancelResponse();
-        setShowAlert(false);
-
-        // Reset alert state for next incident
-        setAlertSent(false);
-        sensorService.resetAlertState();
-    };
-
-    const handleAlertTimeout = () => {
-        console.log('⏱️ Alert timeout - no response');
-
-        // Send no response to server
-        socketService.sendNoResponse();
-
-        // Trigger email notification via server
-        const currentData = sensorService.getCurrentData();
-        socketService.sendEmailNotification({
-            gForce: currentData.gForce,
-            tilt: currentData.tilt,
-            location: currentData.location,
-            timestamp: Date.now(),
-        });
-
-        setShowAlert(false);
-
-        // Reset alert state for next incident
-        setAlertSent(false);
-        sensorService.resetAlertState();
-
-        // Show email confirmation
-        setTimeout(() => {
-            Alert.alert(
-                '📧 Email Sent',
-                'Emergency notification has been sent to your contact!',
-                [{ text: 'OK' }]
-            );
-        }, 500);
-    };
+    // REMOVED: handleCancelAlert - only ESP32 can cancel
+    // REMOVED: handleAlertTimeout - only ESP32 decides timeout
 
     const getStatusColor = () => {
         if (!isConnected) return '#d32f2f';
@@ -279,7 +378,7 @@ const SensorScreen: React.FC = () => {
                                 <Text style={styles.dataLabel}>G-Force</Text>
                                 <Text style={[
                                     styles.dataValue,
-                                    sensorData.gForce > 2.5 && styles.dataValueAlert
+                                    sensorData.gForce > 6.5 && styles.dataValueAlert
                                 ]}>
                                     {sensorData.gForce.toFixed(2)}g
                                 </Text>
@@ -289,7 +388,7 @@ const SensorScreen: React.FC = () => {
                                 <Text style={styles.dataLabel}>Tilt</Text>
                                 <Text style={[
                                     styles.dataValue,
-                                    Math.abs(sensorData.tilt) > 45 && styles.dataValueAlert
+                                    Math.abs(sensorData.tilt) > 60 && styles.dataValueAlert
                                 ]}>
                                     {sensorData.tilt.toFixed(1)}°
                                 </Text>
@@ -314,7 +413,7 @@ const SensorScreen: React.FC = () => {
                                             styles.tiltBar,
                                             {
                                                 transform: [{ rotate: `${sensorData.tilt}deg` }],
-                                                backgroundColor: Math.abs(sensorData.tilt) > 45 ? '#ef4444' : '#3b82f6'
+                                                backgroundColor: Math.abs(sensorData.tilt) > 60 ? '#ef4444' : '#3b82f6'
                                             }
                                         ]}
                                     />
@@ -328,7 +427,7 @@ const SensorScreen: React.FC = () => {
                                 </View>
                             </View>
                             <Text style={styles.tiltMeterHint}>
-                                {Math.abs(sensorData.tilt) > 45 ? '⚠️ Threshold exceeded!' : '✓ Normal range'}
+                                {Math.abs(sensorData.tilt) > 60 ? '⚠️ Threshold exceeded!' : '✓ Normal range'}
                             </Text>
                         </View>
 
@@ -354,9 +453,11 @@ const SensorScreen: React.FC = () => {
 
                 {/* Info Section */}
                 <View style={styles.infoSection}>
-                    <Text style={styles.infoTitle}>Detection Thresholds</Text>
-                    <Text style={styles.infoText}>• G-Force: &gt; 2.5g</Text>
-                    <Text style={styles.infoText}>• Tilt: &gt; 45°</Text>
+                    <Text style={styles.infoTitle}>Detection Thresholds (ESP32-aligned)</Text>
+                    <Text style={styles.infoText}>• G-Force: &gt; 6.5g (confidence +0.4)</Text>
+                    <Text style={styles.infoText}>• Hard Impact: &gt; 9.0g (instant)</Text>
+                    <Text style={styles.infoText}>• Tilt: &gt; 60° (confidence +0.4)</Text>
+                    <Text style={styles.infoText}>• Confidence: ≥ 0.7 required</Text>
                 </View>
             </ScrollView>
 
@@ -370,13 +471,20 @@ const SensorScreen: React.FC = () => {
                 </View>
             )}
 
-            {/* Alert Overlay */}
+            {/* Alert Overlay - Disabled cancel (only ESP32 can cancel) */}
             {showAlert && (
-                <CancelButton
-                    onCancel={handleCancelAlert}
-                    onTimeout={handleAlertTimeout}
-                    duration={10}
-                />
+                <View style={styles.alertOverlay}>
+                    <View style={styles.alertCard}>
+                        <Text style={styles.alertTitle}>🚨 Accident Detected!</Text>
+                        <Text style={styles.alertSubtitle}>ESP32 timer is running...</Text>
+                        <Text style={styles.alertMessage}>
+                            Only the helmet button can cancel this alert.
+                        </Text>
+                        <Text style={styles.alertHint}>
+                            Waiting for helmet response (10 seconds)
+                        </Text>
+                    </View>
+                </View>
             )}
         </SafeAreaView>
     );
@@ -658,6 +766,47 @@ const styles = StyleSheet.create({
         textAlign: 'center',
         marginTop: 8,
         fontWeight: '600',
+    },
+    alertOverlay: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(0,0,0,0.9)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        zIndex: 1000,
+    },
+    alertCard: {
+        backgroundColor: '#fff',
+        padding: 30,
+        borderRadius: 16,
+        width: '80%',
+        alignItems: 'center',
+    },
+    alertTitle: {
+        fontSize: 24,
+        fontWeight: 'bold',
+        color: '#d32f2f',
+        marginBottom: 10,
+    },
+    alertSubtitle: {
+        fontSize: 16,
+        color: '#666',
+        marginBottom: 15,
+    },
+    alertMessage: {
+        fontSize: 14,
+        color: '#333',
+        textAlign: 'center',
+        marginBottom: 10,
+    },
+    alertHint: {
+        fontSize: 12,
+        color: '#999',
+        textAlign: 'center',
+        fontStyle: 'italic',
     },
 });
 

@@ -99,7 +99,7 @@ export default function HistoryPage() {
                         </thead>
                         <tbody>
                             {sortedData
-                                .filter(row => row.rider === "Rahul Kumar") // Mock User Filter
+                                .filter(row => row.rider === "Simran Kalkeri") // Mock User Filter
                                 .map((row) => (
                                     <tr key={row.id}>
                                         <td className="mono">{row.id}</td>

@@ -15,13 +15,21 @@ require('dotenv').config();
  * @param {number} accidentData.timestamp - Timestamp of accident
  */
 async function sendAccidentEmail(accidentData) {
+    console.log('\n🔍 EMAIL SERVICE CALLED');
+    console.log('   Accident data received:', JSON.stringify(accidentData, null, 2));
+
     const emailUser = process.env.EMAIL_USER;
     const emailPass = process.env.EMAIL_PASS;
 
+    console.log('   EMAIL_USER:', emailUser ? `${emailUser.substring(0, 5)}...` : 'NOT SET');
+    console.log('   EMAIL_PASS:', emailPass ? `${emailPass.substring(0, 3)}...` : 'NOT SET');
+
     if (!emailUser || !emailPass) {
-        console.log('⚠️ Email credentials not configured - skipping email');
+        console.log('❌ Email credentials not configured - skipping email');
+        console.log('   Please set EMAIL_USER and EMAIL_PASS in .env file');
         return { success: false, reason: 'No credentials' };
     }
+
 
     try {
         // Create transporter
@@ -57,7 +65,7 @@ async function sendAccidentEmail(accidentData) {
                         <table style="width: 100%; border-collapse: collapse;">
                             <tr>
                                 <td style="padding: 8px 0; color: #666;"><strong>Name:</strong></td>
-                                <td style="padding: 8px 0; color: #333;">Rahul Kumar</td>
+                                <td style="padding: 8px 0; color: #333;">Simran Kalkeri</td>
                             </tr>
                             <tr>
                                 <td style="padding: 8px 0; color: #666;"><strong>Device ID:</strong></td>
@@ -94,6 +102,10 @@ async function sendAccidentEmail(accidentData) {
                             <tr>
                                 <td style="padding: 8px 0; color: #666;"><strong>Severity:</strong></td>
                                 <td style="padding: 8px 0; color: #ef4444; font-weight: bold; text-transform: uppercase;">HIGH</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 8px 0; color: #666;"><strong>Detected By:</strong></td>
+                                <td style="padding: 8px 0; color: #333; font-weight: 600;">${accidentData.source === 'ESP32' ? '🪖 Smart Helmet (ESP32)' : '📱 Mobile App'}</td>
                             </tr>
                         </table>
                     </div>

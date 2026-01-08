@@ -1,10 +1,13 @@
 /**
  * Alert Management Service
  * Handles accident severity classification and logging
+ * 
+ * ROLLBACK: Set USE_MONGODB=false in .env to use file-only logging
  */
 
 const fs = require('fs');
 const path = require('path');
+const { saveAccident, getAccidents, isMongoDBConnected } = require('./dbService');
 
 const LOGS_DIR = path.join(__dirname, '../logs');
 const ACCIDENTS_LOG = path.join(LOGS_DIR, 'accidents.json');
@@ -52,29 +55,51 @@ function classifyAccident(accidentData, userResponse) {
     return classifiedAccident;
 }
 
-function logAccident(accidentData) {
+async function logAccident(accidentData) {
     try {
-        // Read existing logs
-        const logs = JSON.parse(fs.readFileSync(ACCIDENTS_LOG, 'utf8'));
-
-        // Add new accident
-        logs.push({
+        const accidentRecord = {
             ...accidentData,
             loggedAt: new Date().toISOString(),
-        });
+        };
 
-        // Write back to file
+        // Try MongoDB first if enabled
+        if (isMongoDBConnected()) {
+            try {
+                await saveAccident(accidentRecord);
+                console.log('   💾 Saved to MongoDB');
+            } catch (mongoError) {
+                console.error('   ⚠️ MongoDB save failed, using file backup:', mongoError.message);
+            }
+        }
+
+        // Always save to file as backup/fallback
+        const logs = JSON.parse(fs.readFileSync(ACCIDENTS_LOG, 'utf8'));
+        logs.push(accidentRecord);
         fs.writeFileSync(ACCIDENTS_LOG, JSON.stringify(logs, null, 2));
-
-        console.log(`\n📝 Accident logged to: ${ACCIDENTS_LOG}`);
+        console.log(`   📝 Accident logged to file: ${ACCIDENTS_LOG}`);
     } catch (error) {
         console.error('Error logging accident:', error);
     }
 }
 
-function getAccidentLogs() {
+async function getAccidentLogs() {
     try {
-        return JSON.parse(fs.readFileSync(ACCIDENTS_LOG, 'utf8'));
+        // Use MongoDB if connected
+        if (isMongoDBConnected()) {
+            try {
+                const accidents = await getAccidents({ limit: 1000 });
+                console.log(`📊 Retrieved ${accidents.length} accidents from MongoDB`);
+                return accidents;
+            } catch (mongoError) {
+                console.error('⚠️ MongoDB query failed, falling back to file:', mongoError.message);
+                // Fall through to file-based logging
+            }
+        }
+
+        // Fallback to file-based logging
+        const logs = JSON.parse(fs.readFileSync(ACCIDENTS_LOG, 'utf8'));
+        console.log(`📊 Retrieved ${logs.length} accidents from file`);
+        return logs;
     } catch (error) {
         console.error('Error reading accident logs:', error);
         return [];

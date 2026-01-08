@@ -1,162 +1,303 @@
 "use client";
 
+import { useState, useEffect } from 'react';
+import { Line, Bar } from "react-chartjs-2";
+import { TrendingUp, BarChart3, Activity, RefreshCw } from "lucide-react";
 import {
     Chart as ChartJS,
     CategoryScale,
     LinearScale,
+    BarElement,
     PointElement,
     LineElement,
-    BarElement,
-    ArcElement,
     Title,
     Tooltip,
     Legend,
     Filler,
 } from "chart.js";
-import { Line, Doughnut, Bar } from "react-chartjs-2";
+import { useTheme } from "@/context/ThemeContext";
 
-ChartJS.register(
-    CategoryScale,
-    LinearScale,
-    PointElement,
-    LineElement,
-    BarElement,
-    ArcElement,
-    Title,
-    Tooltip,
-    Legend,
-    Filler
-);
+ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineElement, Title, Tooltip, Legend, Filler);
 
-// Global Chart Defaults
-ChartJS.defaults.color = "#94a3b8";
-ChartJS.defaults.borderColor = "rgba(148, 163, 184, 0.1)";
-
-const LineData = {
-    labels: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
-    datasets: [
-        {
-            label: "Accidents",
-            data: [2, 1, 0, 3, 2, 4, 1],
-            borderColor: "#ef4444",
-            backgroundColor: "rgba(239, 68, 68, 0.1)",
-            fill: true,
-            tension: 0.4,
-        },
-        {
-            label: "False Alarms",
-            data: [4, 2, 1, 2, 3, 1, 0],
-            borderColor: "#f59e0b",
-            backgroundColor: "rgba(245, 158, 11, 0.1)",
-            fill: true,
-            tension: 0.4,
-        }
-    ],
-};
-
-const SeverityData = {
-    labels: ["High Impact", "Medium Impact", "Low Impact"],
-    datasets: [
-        {
-            data: [15, 30, 55],
-            backgroundColor: ["#ef4444", "#f59e0b", "#10b981"],
-            borderWidth: 0,
-        },
-    ],
-};
-
-const HotspotData = {
-    labels: ["MG Road", "NH-8", "Cyber City", "Golf Course Rd", "Sec 29"],
-    datasets: [
-        {
-            label: "Incident Count",
-            data: [12, 19, 8, 5, 3],
-            backgroundColor: "#3b82f6",
-            borderRadius: 4,
-        },
-    ],
-};
+interface Accident {
+    severity: string;
+    timestamp: number;
+}
 
 export default function AnalyticsPage() {
+    const { theme } = useTheme();
+    const [stats, setStats] = useState({ highSeverity: 0, lowSeverity: 0 });
+    const [accidents, setAccidents] = useState<Accident[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    // Theme-aware chart colors
+    const chartColors = {
+        text: theme === 'dark' ? '#94a3b8' : '#64748b',
+        grid: theme === 'dark' ? 'rgba(71, 85, 105, 0.2)' : 'rgba(203, 213, 225, 0.5)',
+        high: '#ef4444',
+        low: '#f59e0b',
+        highBg: theme === 'dark' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)',
+        lowBg: theme === 'dark' ? 'rgba(245, 158, 11, 0.15)' : 'rgba(245, 158, 11, 0.1)',
+    };
+
+    useEffect(() => {
+        ChartJS.defaults.color = chartColors.text;
+        ChartJS.defaults.borderColor = chartColors.grid;
+    }, [theme]);
+
+    useEffect(() => {
+        fetchData();
+        const interval = setInterval(fetchData, 5000);
+        return () => clearInterval(interval);
+    }, []);
+
+    const fetchData = async () => {
+        try {
+            const res = await fetch('/api/accidents');
+            const data = await res.json();
+            if (data.success) {
+                setStats({
+                    highSeverity: data.stats.highSeverity,
+                    lowSeverity: data.stats.lowSeverity
+                });
+                setAccidents(data.accidents || []);
+            }
+        } catch (error) {
+            console.error('Failed to fetch:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const getTimeData = () => {
+        const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        const today = new Date();
+        const labels: string[] = [];
+        const highData: number[] = [];
+        const lowData: number[] = [];
+
+        for (let i = 6; i >= 0; i--) {
+            const date = new Date(today);
+            date.setDate(date.getDate() - i);
+            labels.push(days[date.getDay()]);
+
+            const dayStart = new Date(date.setHours(0, 0, 0, 0)).getTime();
+            const dayEnd = new Date(date.setHours(23, 59, 59, 999)).getTime();
+
+            const dayAccidents = accidents.filter(a => a.timestamp >= dayStart && a.timestamp <= dayEnd);
+            highData.push(dayAccidents.filter(a => a.severity === 'high').length);
+            lowData.push(dayAccidents.filter(a => a.severity === 'low').length);
+        }
+
+        return { labels, highData, lowData };
+    };
+
+    const timeData = getTimeData();
+
+    if (loading) {
+        return (
+            <div className="loading">
+                <RefreshCw size={24} className="spin" />
+                <span>Loading analytics...</span>
+                <style jsx>{`
+                    .loading {
+                        display: flex;
+                        align-items: center;
+                        gap: 12px;
+                        justify-content: center;
+                        height: 400px;
+                        color: var(--foreground-muted);
+                    }
+                    .spin { animation: spin 1s linear infinite; }
+                    @keyframes spin {
+                        from { transform: rotate(0deg); }
+                        to { transform: rotate(360deg); }
+                    }
+                `}</style>
+            </div>
+        );
+    }
+
     return (
-        <div className="analytics-page">
-            <div className="page-header">
-                <h1>Analytics Overview</h1>
-                <p>Data-driven insights for safety improvements.</p>
+        <div className="analytics animate-fadeIn">
+            <header className="page-header">
+                <div>
+                    <h1>Analytics</h1>
+                    <p>Accident statistics and trends</p>
+                </div>
+                <button onClick={fetchData} className="btn btn-ghost">
+                    <RefreshCw size={16} />
+                    Refresh
+                </button>
+            </header>
+
+            {/* Stats Cards */}
+            <div className="stats-grid">
+                <div className="glass-panel stat-card high">
+                    <div className="stat-icon">
+                        <TrendingUp size={24} />
+                    </div>
+                    <div className="stat-content">
+                        <span className="stat-label">High Severity</span>
+                        <span className="stat-value">{stats.highSeverity}</span>
+                        <span className="stat-desc">Email alerts sent</span>
+                    </div>
+                </div>
+                <div className="glass-panel stat-card low">
+                    <div className="stat-icon">
+                        <Activity size={24} />
+                    </div>
+                    <div className="stat-content">
+                        <span className="stat-label">Low Severity</span>
+                        <span className="stat-value">{stats.lowSeverity}</span>
+                        <span className="stat-desc">Cancelled by user</span>
+                    </div>
+                </div>
             </div>
 
-            <div className="charts-grid">
-                <div className="chart-card full-width glass-panel">
-                    <h3>Accident Trends (Last 7 Days)</h3>
-                    <div className="chart-container-lg">
-                        <Line data={LineData} options={{ maintainAspectRatio: false }} />
-                    </div>
+            {/* Time Graph */}
+            <div className="glass-panel chart-card">
+                <div className="chart-header">
+                    <TrendingUp size={18} />
+                    <h3>Accidents Over Time</h3>
+                    <span className="badge badge-primary">Last 7 days</span>
                 </div>
-
-                <div className="chart-card glass-panel">
-                    <h3>Severity Distribution</h3>
-                    <div className="chart-container">
-                        <Doughnut data={SeverityData} options={{ maintainAspectRatio: false }} />
-                    </div>
+                <div className="chart-container">
+                    <Line
+                        data={{
+                            labels: timeData.labels,
+                            datasets: [
+                                {
+                                    label: "High Severity",
+                                    data: timeData.highData,
+                                    borderColor: chartColors.high,
+                                    backgroundColor: chartColors.highBg,
+                                    fill: true,
+                                    tension: 0.4,
+                                    borderWidth: 2
+                                },
+                                {
+                                    label: "Low Severity",
+                                    data: timeData.lowData,
+                                    borderColor: chartColors.low,
+                                    backgroundColor: chartColors.lowBg,
+                                    fill: true,
+                                    tension: 0.4,
+                                    borderWidth: 2
+                                }
+                            ]
+                        }}
+                        options={{
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: { position: 'top', align: 'end', labels: { boxWidth: 12, padding: 16 } }
+                            },
+                            scales: {
+                                y: { beginAtZero: true, ticks: { stepSize: 1 }, grid: { color: chartColors.grid } },
+                                x: { grid: { color: chartColors.grid } }
+                            }
+                        }}
+                    />
                 </div>
+            </div>
 
-                <div className="chart-card glass-panel">
-                    <h3>High Risk Zones</h3>
-                    <div className="chart-container">
-                        <Bar data={HotspotData} options={{ maintainAspectRatio: false }} />
-                    </div>
+            {/* Bar Graph */}
+            <div className="glass-panel chart-card">
+                <div className="chart-header">
+                    <BarChart3 size={18} />
+                    <h3>Severity Comparison</h3>
+                </div>
+                <div className="chart-container small">
+                    <Bar
+                        data={{
+                            labels: ["High Severity", "Low Severity"],
+                            datasets: [{
+                                label: "Accidents",
+                                data: [stats.highSeverity, stats.lowSeverity],
+                                backgroundColor: [chartColors.high, chartColors.low],
+                                borderRadius: 8,
+                                borderWidth: 0
+                            }]
+                        }}
+                        options={{
+                            maintainAspectRatio: false,
+                            plugins: { legend: { display: false } },
+                            scales: {
+                                y: { beginAtZero: true, ticks: { stepSize: 1 }, grid: { color: chartColors.grid } },
+                                x: { grid: { display: false } }
+                            }
+                        }}
+                    />
                 </div>
             </div>
 
             <style jsx>{`
-        .analytics-page {
-          padding-bottom: 40px;
-        }
+                .analytics { padding-bottom: 40px; }
 
-        .page-header {
-          margin-bottom: 32px;
-        }
+                .page-header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-bottom: var(--space-xl);
+                }
 
-        .charts-grid {
-          display: grid;
-          grid-template-columns: repeat(2, 1fr);
-          gap: 24px;
-        }
+                .page-header h1 { font-size: 1.75rem; margin-bottom: 4px; }
+                .page-header p { color: var(--foreground-muted); font-size: 0.9rem; }
 
-        .chart-card {
-          padding: 24px;
-          display: flex;
-          flex-direction: column;
-        }
+                .stats-grid {
+                    display: grid;
+                    grid-template-columns: repeat(2, 1fr);
+                    gap: var(--space-lg);
+                    margin-bottom: var(--space-lg);
+                }
 
-        .full-width {
-          grid-column: span 2;
-        }
+                .stat-card {
+                    display: flex;
+                    align-items: center;
+                    gap: var(--space-lg);
+                    padding: var(--space-xl);
+                }
 
-        .chart-card h3 {
-          margin-bottom: 20px;
-          font-size: 1.1rem;
-        }
+                .stat-card.high { border-left: 3px solid var(--danger); }
+                .stat-card.low { border-left: 3px solid var(--warning); }
 
-        .chart-container {
-          height: 300px;
-          position: relative;
-        }
+                .stat-icon {
+                    width: 56px;
+                    height: 56px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    border-radius: var(--radius-lg);
+                    color: var(--foreground-muted);
+                    background: var(--background-secondary);
+                }
 
-        .chart-container-lg {
-          height: 400px;
-          position: relative;
-        }
+                .stat-card.high .stat-icon { color: var(--danger); background: var(--danger-muted); }
+                .stat-card.low .stat-icon { color: var(--warning); background: var(--warning-muted); }
 
-        @media (max-width: 1000px) {
-          .charts-grid {
-            grid-template-columns: 1fr;
-          }
-          .full-width {
-            grid-column: span 1;
-          }
-        }
-      `}</style>
+                .stat-content { display: flex; flex-direction: column; }
+                .stat-label { font-size: 0.85rem; color: var(--foreground-muted); margin-bottom: 4px; }
+                .stat-value { font-size: 2.5rem; font-weight: 700; line-height: 1; }
+                .stat-desc { font-size: 0.8rem; color: var(--foreground-subtle); margin-top: 4px; }
+
+                .chart-card { padding: var(--space-lg); margin-bottom: var(--space-lg); }
+
+                .chart-header {
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    margin-bottom: var(--space-lg);
+                    color: var(--foreground-muted);
+                }
+
+                .chart-header h3 { flex: 1; font-size: 0.95rem; font-weight: 500; color: var(--foreground); }
+                .chart-container { height: 280px; position: relative; }
+                .chart-container.small { height: 200px; }
+
+                @media (max-width: 768px) {
+                    .stats-grid { grid-template-columns: 1fr; }
+                }
+            `}</style>
         </div>
     );
 }

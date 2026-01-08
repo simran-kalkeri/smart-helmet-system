@@ -1,5 +1,4 @@
 import Sidebar from "@/components/Sidebar";
-import Header from "@/components/Header";
 
 export default function DashboardLayout({
     children,
@@ -10,7 +9,6 @@ export default function DashboardLayout({
         <div className="main-layout">
             <Sidebar />
             <div className="content-wrapper">
-                <Header />
                 <main className="main-content">
                     {children}
                 </main>
@@ -18,3 +16,4 @@ export default function DashboardLayout({
         </div>
     );
 }
+

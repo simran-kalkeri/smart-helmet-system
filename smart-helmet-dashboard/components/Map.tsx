@@ -143,7 +143,7 @@ export default function MapView() {
                 <Marker position={position} icon={userIcon}>
                     <Popup>
                         <div className="popup-content">
-                            <strong>Rahul Kumar</strong>
+                            <strong>Simran Kalkeri</strong>
                             <br />
                             {isAccidentActive ? (
                                 <span style={{ color: 'red', fontWeight: 'bold' }}>🚨 ACCIDENT DETECTED</span>

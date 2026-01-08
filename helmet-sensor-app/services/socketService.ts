@@ -6,23 +6,36 @@ class SocketService {
 
     connect(serverUrl: string) {
         this.serverUrl = serverUrl;
+
+        // For React Native, we need to allow both polling and websocket
+        // The client will start with polling and upgrade to websocket
         this.socket = io(serverUrl, {
-            transports: ['websocket'],
+            transports: ['polling', 'websocket'], // Changed: Allow polling first for React Native
             reconnection: true,
             reconnectionAttempts: 5,
             reconnectionDelay: 1000,
+            timeout: 10000, // 10 second timeout
+            forceNew: true, // Force new connection to avoid issues
         });
 
         this.socket.on('connect', () => {
             console.log('✅ Connected to server:', serverUrl);
+            console.log('   Transport:', this.socket?.io.engine.transport.name);
         });
 
-        this.socket.on('disconnect', () => {
+        this.socket.on('disconnect', (reason) => {
             console.log('❌ Disconnected from server');
+            console.log('   Reason:', reason);
         });
 
-        this.socket.on('connect_error', (error) => {
-            console.error('Connection error:', error.message);
+        this.socket.on('connect_error', (error: any) => {
+            console.error('❌ Connection error:', error.message);
+            if (error.type) console.error('   Type:', error.type);
+            if (error.description) console.error('   Description:', error.description);
+        });
+
+        this.socket.on('error', (error) => {
+            console.error('❌ Socket error:', error);
         });
 
         return this.socket;

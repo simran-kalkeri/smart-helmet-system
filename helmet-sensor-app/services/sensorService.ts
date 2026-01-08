@@ -51,40 +51,43 @@ class SensorService {
                 }
             );
         }
-        // Set update interval to 50ms for smooth real-time visualization
-        Accelerometer.setUpdateInterval(50);
-        Gyroscope.setUpdateInterval(50);
+
+        // Set update interval for sensors (100ms = 10 Hz)
+        Accelerometer.setUpdateInterval(100);
+        Gyroscope.setUpdateInterval(100);
 
         // Subscribe to accelerometer
-        this.accelerometerSubscription = Accelerometer.addListener((data) => {
-            const { x, y, z } = data;
-            this.currentData.acceleration = { x, y, z };
+        this.accelerometerSubscription = Accelerometer.addListener((accelerometerData) => {
+            const { x, y, z } = accelerometerData;
 
-            // Calculate g-force magnitude
-            // Expo's accelerometer already returns values in g-units, not m/s²
+            // Calculate G-force (total acceleration magnitude)
             const gForce = Math.sqrt(x * x + y * y + z * z);
+
+            // Store raw acceleration data
+            this.currentData.acceleration = { x, y, z };
             this.currentData.gForce = gForce;
 
-            // Calculate tilt angle (in degrees) from accelerometer
-            // Using atan2 to get angle from vertical
-            const tilt = Math.atan2(y, z) * (180 / Math.PI);
-            this.currentData.tilt = tilt;
+            // Check for anomalies (crashes)
+            this.checkAnomaly(onAnomalyDetected);
 
-            // Update callback
-            onDataUpdate(this.currentData);
-
-            // Continuous data streaming callback
+            // Call continuous data callback if provided (for live streaming)
             if (onContinuousData) {
                 onContinuousData(this.currentData);
             }
 
-            // Check for anomaly
-            this.checkAnomaly(onAnomalyDetected);
+            // Call main data update callback
+            onDataUpdate(this.currentData);
         });
 
-        // Subscribe to gyroscope for rotation data
-        this.gyroscopeSubscription = Gyroscope.addListener((data) => {
-            this.currentData.rotation = data;
+        // Subscribe to gyroscope
+        this.gyroscopeSubscription = Gyroscope.addListener((gyroscopeData) => {
+            const { x, y, z } = gyroscopeData;
+
+            // Calculate tilt from gyroscope (for simplicity, using magnitude)
+            const tilt = Math.sqrt(x * x + y * y + z * z) * (180 / Math.PI);
+
+            this.currentData.rotation = { x, y, z };
+            this.currentData.tilt = tilt;
         });
 
         console.log('🔍 Sensor monitoring started');
@@ -102,22 +105,45 @@ class SensorService {
             return; // Still in cooldown period
         }
 
-        const { gForce, tilt } = this.currentData;
+        const { acceleration, tilt } = this.currentData;
+        const { x, y, z } = acceleration;
 
-        // Dual-factor detection
-        const isGForceAnomaly = gForce > 2.5;
-        const isTiltAnomaly = Math.abs(tilt) > 45;
+        // ESP32-style detection logic with confidence scoring
+        // Calculate total acceleration magnitude (similar to ESP32)
+        const A = Math.sqrt(x * x + y * y + z * z);
 
-        if (isGForceAnomaly || isTiltAnomaly) {
-            console.log('🚨 ANOMALY DETECTED!');
-            console.log(`  G-Force: ${gForce.toFixed(2)}g ${isGForceAnomaly ? '⚠️' : '✓'}`);
-            console.log(`  Tilt: ${tilt.toFixed(2)}° ${isTiltAnomaly ? '⚠️' : '✓'}`);
+        // Calculate pitch and roll angles (like ESP32)
+        const pitch = Math.abs(Math.atan2(x, Math.sqrt(y * y + z * z)) * (180 / Math.PI));
+        const roll = Math.abs(Math.atan2(y, Math.sqrt(x * x + z * z)) * (180 / Math.PI));
+
+        // ESP32 Thresholds (from config.h)
+        const ACCEL_CRASH_G = 2.0;
+        const HARD_IMPACT_G = 3.5;
+        const TILT_THRESHOLD_DEG = 60;
+
+        // Confidence-based detection (matching ESP32 crash_detector.cpp)
+        let confidence = 0;
+
+        if (A > ACCEL_CRASH_G) confidence += 0.4;
+        if (pitch > TILT_THRESHOLD_DEG || roll > TILT_THRESHOLD_DEG) confidence += 0.4;
+        if (A > HARD_IMPACT_G) confidence = 1.0; // Hard impact overrides
+
+        // Trigger crash if confidence >= 0.7 (matching ESP32)
+        if (confidence >= 0.7) {
+            console.log('🚨 CRASH DETECTED! (ESP32-style confidence-based)');
+            console.log(`  Acceleration Magnitude: ${A.toFixed(2)}g ${A > ACCEL_CRASH_G ? '⚠️' : '✓'}`);
+            console.log(`  Pitch: ${pitch.toFixed(2)}° ${pitch > TILT_THRESHOLD_DEG ? '⚠️' : '✓'}`);
+            console.log(`  Roll: ${roll.toFixed(2)}° ${roll > TILT_THRESHOLD_DEG ? '⚠️' : '✓'}`);
+            console.log(`  Confidence: ${confidence.toFixed(2)} (threshold: 0.7)`);
 
             // Set state to prevent spam and record accident time
             this.alertState = 'ALERT_ACTIVE';
             this.lastAccidentTime = now;
             console.log('🔒 Alert state locked - no more alerts until resolved');
             console.log('⏱️ 30-second cooldown started');
+
+            // Update gForce to use magnitude
+            this.currentData.gForce = A;
 
             onAnomalyDetected(this.currentData);
         }
@@ -136,6 +162,7 @@ class SensorService {
             this.locationSubscription.remove();
             this.locationSubscription = null;
         }
+        this.alertState = 'IDLE';
         console.log('🛑 Sensor monitoring stopped');
     }
 
@@ -144,12 +171,8 @@ class SensorService {
     }
 
     resetAlertState() {
-        console.log('🔓 Alert state reset - ready for new detections');
+        console.log('🔓 Alert state reset - ready for next detection');
         this.alertState = 'IDLE';
-    }
-
-    getAlertState(): AlertState {
-        return this.alertState;
     }
 }
 

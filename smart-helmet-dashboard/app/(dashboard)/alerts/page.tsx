@@ -2,17 +2,20 @@
 
 import { useEffect, useState } from "react";
 import AlertCard from "@/components/AlertCard";
-import Skeleton from "@/components/Skeleton";
-import { Filter, RefreshCcw } from "lucide-react";
+import { Filter, RefreshCw, AlertTriangle, Download } from "lucide-react";
 
 type Alert = {
   id: string;
   riderName: string;
   helmetId: string;
   timestamp: string;
+  timestampMs?: number;
   location: string;
-  severity: "high" | "medium" | "low";
+  latitude?: string;
+  longitude?: string;
+  severity: "high" | "low";
   isCancelled: boolean;
+  isActive?: boolean;
 };
 
 export default function AlertsPage() {
@@ -37,80 +40,120 @@ export default function AlertsPage() {
     fetchAlerts();
   }, []);
 
-  const filteredAlerts = alerts.filter((alert: any) => {
-    // In a real app, backend filters by user. Here we simulate "My Alerts".
-    // For this demo, let's assume all alerts with name "Rahul Kumar" are ours.
-    if (alert.riderName !== "Rahul Kumar") return false;
+  const filteredAlerts = alerts
+    .filter((alert: Alert) => {
+      if (alert.riderName !== "Simran Kalkeri") return false;
 
-    if (filter === "all") return true;
-    if (filter === "active") return alert.isActive;
-    if (filter === "inactive") return !alert.isActive;
-    if (filter === "high") return alert.severity === "high";
-    if (filter === "low") return alert.severity === "low";
-    return true;
-  });
+      if (filter === "all") return true;
+      if (filter === "active") return alert.isActive;
+      if (filter === "high") return alert.severity === "high";
+      if (filter === "low") return alert.severity === "low";
+      return true;
+    })
+    .sort((a: Alert, b: Alert) => (b.timestampMs || 0) - (a.timestampMs || 0));
+
+  const exportToCSV = () => {
+    if (filteredAlerts.length === 0) {
+      alert("No alerts to export");
+      return;
+    }
+
+    // CSV Headers
+    const headers = ["ID", "Rider Name", "Helmet ID", "Timestamp", "Location", "Latitude", "Longitude", "Severity", "Cancelled", "Active"];
+
+    // CSV Rows
+    const rows = filteredAlerts.map(alert => [
+      alert.id,
+      alert.riderName,
+      alert.helmetId,
+      alert.timestamp,
+      alert.location,
+      alert.latitude || "N/A",
+      alert.longitude || "N/A",
+      alert.severity,
+      alert.isCancelled ? "Yes" : "No",
+      alert.isActive ? "Yes" : "No"
+    ]);
+
+    // Combine headers and rows
+    const csvContent = [
+      headers.join(","),
+      ...rows.map(row => row.map(field => `"${field}"`).join(","))
+    ].join("\n");
+
+    // Create blob and download
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+
+    link.setAttribute("href", url);
+    link.setAttribute("download", `my-alerts-${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = "hidden";
+
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   return (
-    <div className="alerts-page">
-      <div className="page-header">
+    <div className="alerts-page animate-fadeIn">
+      <header className="page-header">
         <div>
           <h1>My Alerts</h1>
-          <p>History of alerts triggered by your helmet.</p>
+          <p>History of alerts triggered by your helmet</p>
         </div>
 
-        <div className="filter-controls">
-          <button onClick={fetchAlerts} className="icon-btn" title="Refresh">
-            <RefreshCcw size={16} />
+        <div className="controls">
+          <button onClick={exportToCSV} className="btn btn-primary">
+            <Download size={16} />
+            Export to CSV
           </button>
-          <div className="separator"></div>
-          <Filter size={16} />
-          <select
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            className="filter-select"
-          >
-            <option value="all">All Alerts</option>
-            <option value="active">Active Only (24h)</option>
-            <option value="inactive">Deactivated (&gt;24h)</option>
-            <option value="high">High Severity</option>
-            <option value="low">False Alarms / Low Severity</option>
-          </select>
+          <button onClick={fetchAlerts} className="btn btn-ghost">
+            <RefreshCw size={16} />
+          </button>
+          <div className="filter-group">
+            <Filter size={16} />
+            <select
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+            >
+              <option value="all">All Alerts</option>
+              <option value="active">Active (24h)</option>
+              <option value="high">High Severity</option>
+              <option value="low">Low Severity</option>
+            </select>
+          </div>
         </div>
-      </div>
+      </header>
 
       {loading ? (
-        <div className="alerts-grid">
-          {[...Array(6)].map((_, i) => (
-            <div key={i} className="glass-panel" style={{ height: '200px', padding: '24px' }}>
-              <Skeleton style={{ width: '60%', height: '24px', marginBottom: '16px' }} />
-              <Skeleton style={{ width: '100%', height: '20px', marginBottom: '8px' }} />
-              <Skeleton style={{ width: '80%', height: '20px', marginBottom: '24px' }} />
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <Skeleton style={{ width: '40%', height: '36px' }} />
-                <Skeleton style={{ width: '40%', height: '36px' }} />
-              </div>
-            </div>
-          ))}
+        <div className="loading">
+          <RefreshCw size={24} className="spin" />
+          <span>Loading alerts...</span>
+        </div>
+      ) : filteredAlerts.length === 0 ? (
+        <div className="empty glass-panel">
+          <AlertTriangle size={48} />
+          <h3>No alerts found</h3>
+          <p>No alerts match your current filter.</p>
         </div>
       ) : (
         <div className="alerts-grid">
-          {filteredAlerts.length > 0 ? filteredAlerts.map((alertItem: any) => (
+          {filteredAlerts.map((alert) => (
             <AlertCard
-              key={alertItem.id}
-              id={alertItem.id}
-              riderName={alertItem.riderName}
-              helmetId={alertItem.helmetId}
-              timestamp={alertItem.timestamp}
-              location={alertItem.location}
-              latitude={alertItem.latitude}
-              longitude={alertItem.longitude}
-              severity={alertItem.severity}
-              isCancelled={alertItem.isCancelled}
-              onViewMap={() => console.log("Navigate to map coordinate: " + alertItem.location)}
+              key={alert.id}
+              id={alert.id}
+              riderName={alert.riderName}
+              helmetId={alert.helmetId}
+              timestamp={alert.timestamp}
+              location={alert.location}
+              latitude={alert.latitude}
+              longitude={alert.longitude}
+              severity={alert.severity}
+              isCancelled={alert.isCancelled}
+              onViewMap={() => console.log("View map:", alert.location)}
             />
-          )) : (
-            <div className="empty-state">No alerts found matching filter.</div>
-          )}
+          ))}
         </div>
       )}
 
@@ -122,76 +165,105 @@ export default function AlertsPage() {
         .page-header {
           display: flex;
           justify-content: space-between;
-          align-items: flex-end;
-          margin-bottom: 32px;
+          align-items: center;
+          margin-bottom: var(--space-xl);
         }
 
         .page-header h1 {
-          font-size: 2rem;
-          margin-bottom: 8px;
+          font-size: 1.75rem;
+          margin-bottom: 4px;
         }
 
         .page-header p {
-          color: var(--secondary-text, #94a3b8);
+          color: var(--foreground-muted);
+          font-size: 0.9rem;
         }
 
-        .filter-controls {
+        .controls {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+
+        .filter-group {
           display: flex;
           align-items: center;
           gap: 10px;
-          background: var(--card-bg, rgba(30, 41, 59, 0.6));
-          padding: 8px 16px;
-          border-radius: 8px;
+          background: var(--card-bg);
           border: 1px solid var(--card-border);
+          padding: 8px 16px;
+          border-radius: var(--radius-md);
+          color: var(--foreground-muted);
         }
 
-        .filter-select {
+        .filter-group select {
           background: transparent;
           border: none;
           color: var(--foreground);
-          outline: none;
           font-size: 0.9rem;
           cursor: pointer;
+          outline: none;
         }
-        
-        .filter-select option {
+
+        .filter-group select option {
           background: var(--background);
           color: var(--foreground);
         }
 
-        .icon-btn {
-          background: transparent;
-          border: none;
-          color: var(--foreground);
-          cursor: pointer;
+        .loading {
           display: flex;
           align-items: center;
-          opacity: 0.7;
-          transition: opacity 0.2s;
-        }
-        
-        .icon-btn:hover {
-           opacity: 1;
+          justify-content: center;
+          gap: 12px;
+          height: 300px;
+          color: var(--foreground-muted);
         }
 
-        .separator {
-          width: 1px;
-          height: 20px;
-          background: var(--card-border);
-          margin: 0 4px;
+        .spin {
+          animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+
+        .empty {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 16px;
+          padding: 60px 40px;
+          text-align: center;
+          color: var(--foreground-muted);
+        }
+
+        .empty h3 {
+          font-size: 1.1rem;
+          color: var(--foreground);
+        }
+
+        .empty p {
+          font-size: 0.9rem;
         }
 
         .alerts-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-          gap: 24px;
+          grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+          gap: var(--space-lg);
         }
-        
-        .loading-state, .empty-state {
-          padding: 40px;
-          text-align: center;
-          color: var(--secondary-text, #94a3b8);
-          grid-column: 1 / -1;
+
+        @media (max-width: 768px) {
+          .page-header {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 16px;
+          }
+
+          .alerts-grid {
+            grid-template-columns: 1fr;
+          }
         }
       `}</style>
     </div>
