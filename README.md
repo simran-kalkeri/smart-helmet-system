@@ -7,7 +7,7 @@ A comprehensive IoT-based accident detection and monitoring system for smart hel
 ![Next.js](https://img.shields.io/badge/Next.js-16.0.7-black?style=for-the-badge&logo=next.js)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=for-the-badge&logo=typescript)
 
-## 📋 Table of Contents
+## 📋 Table of Contents:
 
 - [Overview](#-overview)
 - [System Architecture](#-system-architecture)
