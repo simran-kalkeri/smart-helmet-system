@@ -8,7 +8,7 @@ A comprehensive IoT dashboard for real-time smart helmet monitoring and accident
 
 ## 🌟 Features
 
-### 🚨 Accident Detection & SOS System
+### 🚨 Accident Detection & SOS System:
 - **10-Second SOS Cancel Timer**: Allows riders to cancel false alarms within 10 seconds
 - **Severity Levels**: 
   - **High Severity**: No response within 10 seconds - automatic emergency notification
