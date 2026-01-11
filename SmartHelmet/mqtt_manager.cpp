@@ -7,7 +7,7 @@
 
 // 🔹 CHANGE THESE
 const char* ssid = "Oppo 17";
-const char* password = "1234567801";
+const char* password = "1234567802";
 const char* mqtt_server = "broker.hivemq.com";
 
 WiFiClient espClient;

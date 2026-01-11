@@ -4,9 +4,9 @@
 #include "config.h"
 #include <math.h>
 
-#define CONFIDENCE_DECAY 0.9
+#define CONFIDENCE_DECAY 0.85  // More aggressive decay (was 0.9)
 #define CONFIDENCE_TRIGGER 0.7
-#define CRASH_COOLDOWN_MS 5000
+#define CRASH_COOLDOWN_MS 3000  // Reduced from 5000ms for faster recovery
 
 static float confidence = 0.0;
 static unsigned long cooldownUntil = 0;

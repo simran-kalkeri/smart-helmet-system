@@ -76,7 +76,7 @@ export default function AnalyticsPage() {
         const highData: number[] = [];
         const lowData: number[] = [];
 
-        for (let i = 6; i >= 0; i--) {
+        for (let i = 9; i >= 0; i--) {
             const date = new Date(today);
             date.setDate(date.getDate() - i);
             labels.push(days[date.getDay()]);
@@ -160,7 +160,7 @@ export default function AnalyticsPage() {
                 <div className="chart-header">
                     <TrendingUp size={18} />
                     <h3>Accidents Over Time</h3>
-                    <span className="badge badge-primary">Last 7 days</span>
+                    <span className="badge badge-primary">Last 10 days</span>
                 </div>
                 <div className="chart-container">
                     <Line
