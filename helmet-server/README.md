@@ -46,7 +46,7 @@ You should see:
    Tilt: > 45°
 ```
 
-### Find Your Laptop IP
+### Find Your Laptop IP:
 
 **Windows:**
 ```bash
